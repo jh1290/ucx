@@ -697,7 +697,7 @@ unsigned uct_rc_iface_do_progress(uct_iface_h tl_iface)
 UCS_CLASS_INIT_FUNC(uct_rc_iface_t, uct_rc_iface_ops_t *ops, uct_md_h md,
                     uct_worker_h worker, const uct_iface_params_t *params,
                     const uct_rc_iface_config_t *config, unsigned rx_priv_len,
-                    unsigned fc_req_size, int tm_cap_flag,
+                    unsigned fc_req_size, int flags,
                     uint32_t res_domain_key)
 {
     uct_ib_device_t *dev = &ucs_derived_of(md, uct_ib_md_t)->dev;
@@ -707,12 +707,13 @@ UCS_CLASS_INIT_FUNC(uct_rc_iface_t, uct_rc_iface_ops_t *ops, uct_md_h md,
     unsigned rx_cq_len;
     size_t max_bcopy;
 
-    uct_rc_iface_preinit(self, md, config, params, tm_cap_flag, &rx_cq_len,
-                         &max_bcopy);
+    uct_rc_iface_preinit(self, md, config, params, flags & UCT_IB_TAG_MATCHING,
+                         &rx_cq_len, &max_bcopy);
 
     UCS_CLASS_CALL_SUPER_INIT(uct_ib_iface_t, &ops->super, md, worker, params,
                               rx_priv_len, sizeof(uct_rc_hdr_t), tx_cq_len,
-                              rx_cq_len, max_bcopy, res_domain_key, &config->super);
+                              rx_cq_len, max_bcopy, res_domain_key, flags,
+                              &config->super);
 
     self->tx.cq_available           = tx_cq_len - 1;
     self->rx.srq.available          = 0;

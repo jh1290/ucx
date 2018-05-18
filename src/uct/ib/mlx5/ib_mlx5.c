@@ -22,7 +22,7 @@ ucs_status_t uct_ib_mlx5_get_cq(struct ibv_cq *cq, uct_ib_mlx5_cq_t *mlx5_cq)
     uct_ib_mlx5dv_cq_t dcq;
     unsigned cqe_size;
     ucs_status_t status;
-    int ret;
+    int UCS_V_UNUSED ret;
 
     obj.dv.cq.in = cq;
     obj.dv.cq.out = &dcq.dv;
@@ -45,11 +45,13 @@ ucs_status_t uct_ib_mlx5_get_cq(struct ibv_cq *cq, uct_ib_mlx5_cq_t *mlx5_cq)
      */
     mlx5_cq->cq_buf += cqe_size - sizeof(struct mlx5_cqe64);
 
+#if HAVE_DECL_IBV_EXP_CQ_IGNORE_OVERRUN
     ret = ibv_exp_cq_ignore_overrun(cq);
     if (ret != 0) {
         ucs_error("Failed to modify send CQ to ignore overrun: %s", strerror(ret));
         return UCS_ERR_UNSUPPORTED;
     }
+#endif
 
     mlx5_cq->cqe_size_log = ucs_ilog2(cqe_size);
     ucs_assert_always((1<<mlx5_cq->cqe_size_log) == cqe_size);

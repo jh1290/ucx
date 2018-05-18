@@ -19,6 +19,13 @@
 #define UCT_IB_MAX_IOV                     8UL
 #define UCT_IB_IFACE_NULL_RES_DOMAIN_KEY   0u
 
+enum {
+        UCT_IB_TAG_MATCHING_RC           = IBV_EXP_TM_CAP_RC,
+        UCT_IB_TAG_MATCHING_DC           = IBV_EXP_TM_CAP_DC,
+        UCT_IB_TAG_MATCHING              = UCT_IB_TAG_MATCHING_RC |
+                                           UCT_IB_TAG_MATCHING_DC,
+        UCT_IB_CQ_IGNORE_OVERRUN         = 1 << 2,
+};
 
 /* Forward declarations */
 typedef struct uct_ib_iface_config   uct_ib_iface_config_t;
@@ -152,7 +159,7 @@ struct uct_ib_iface {
 };
 UCS_CLASS_DECLARE(uct_ib_iface_t, uct_ib_iface_ops_t*, uct_md_h, uct_worker_h,
                   const uct_iface_params_t*, unsigned, unsigned, unsigned,
-                  unsigned, size_t, uint32_t, const uct_ib_iface_config_t*)
+                  unsigned, size_t, uint32_t, int, const uct_ib_iface_config_t*)
 
 
 /*

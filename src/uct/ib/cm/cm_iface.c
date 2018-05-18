@@ -283,6 +283,7 @@ static UCS_CLASS_INIT_FUNC(uct_cm_iface_t, uct_md_h md, uct_worker_h worker,
                               ucs_min(IB_CM_SIDR_REQ_PRIVATE_DATA_SIZE,
                                       config->super.super.max_bcopy) /* seg_size */,
                               UCT_IB_IFACE_NULL_RES_DOMAIN_KEY,
+                              0, /* flags */
                               &config->super);
 
     if (self->super.super.worker->async == NULL) {
