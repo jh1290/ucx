@@ -33,7 +33,7 @@ struct mlx5dv_cq {
     volatile uint32_t   *dbrec;
     uint32_t            cqe_cnt;
     uint32_t            cqe_size;
-    void                *uar;
+    void                *cq_uar;
     uint32_t            cqn;
     uint64_t            comp_mask;
 };
