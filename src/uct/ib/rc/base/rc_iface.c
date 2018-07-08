@@ -903,6 +903,7 @@ ucs_status_t uct_rc_iface_qp_create(uct_rc_iface_t *iface, int qp_type,
     struct ibv_exp_qp_init_attr qp_init_attr;
     const char *qp_type_str;
     struct ibv_qp *qp;
+    struct ibv_pd *pd;
     int inline_recv = 0;
 
     /* Check QP type */
@@ -916,6 +917,12 @@ ucs_status_t uct_rc_iface_qp_create(uct_rc_iface_t *iface, int qp_type,
         ucs_bug("invalid qp type: %d", qp_type);
     }
 
+    pd = uct_ib_iface_md(&iface->super)->pd;
+#if HAVE_DECL_IBV_ALLOC_TD
+    if (iface->super.res_domain != NULL) {
+        pd = iface->super.res_domain->ibv_domain;
+    }
+#endif
     memset(&qp_init_attr, 0, sizeof(qp_init_attr));
     qp_init_attr.qp_context          = NULL;
     qp_init_attr.send_cq             = iface->super.cq[UCT_IB_TX];
@@ -933,7 +940,7 @@ ucs_status_t uct_rc_iface_qp_create(uct_rc_iface_t *iface, int qp_type,
 
 #if HAVE_DECL_IBV_EXP_CREATE_QP
     qp_init_attr.comp_mask           = IBV_EXP_QP_INIT_ATTR_PD;
-    qp_init_attr.pd                  = uct_ib_iface_md(&iface->super)->pd;
+    qp_init_attr.pd                  = pd;
 
 #  if HAVE_IB_EXT_ATOMICS
     qp_init_attr.comp_mask          |= IBV_EXP_QP_INIT_ATTR_ATOMICS_ARG;
@@ -961,7 +968,7 @@ ucs_status_t uct_rc_iface_qp_create(uct_rc_iface_t *iface, int qp_type,
 
     qp = ibv_exp_create_qp(dev->ibv_context, &qp_init_attr);
 #else
-    qp = ibv_create_qp(uct_ib_iface_md(&iface->super)->pd, &qp_init_attr);
+    qp = ibv_create_qp(pd, &qp_init_attr);
 #endif
     if (qp == NULL) {
         ucs_error("failed to create qp: %m");

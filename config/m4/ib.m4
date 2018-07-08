@@ -191,6 +191,8 @@ AS_IF([test "x$with_ib" == xyes],
                                   [], [], [[#include <infiniband/mlx5dv.h>]])
                        AC_CHECK_MEMBERS([struct mlx5dv_cq.uar],
                                   [], [], [[#include <infiniband/mlx5dv.h>]])
+                       AC_CHECK_DECLS([ibv_alloc_td],
+                                  [], [], [[#include <infiniband/verbs.h>]])
                                ], [with_mlx5_dv=no]))
 
        AS_IF([test "x$with_mlx5_hw" == xyes],

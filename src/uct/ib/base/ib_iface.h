@@ -119,7 +119,13 @@ struct uct_ib_iface_ops {
 
 typedef struct uct_ib_iface_res_domain {
     uct_worker_tl_data_t        super;
+#if HAVE_IBV_EXP_RES_DOMAIN
     struct ibv_exp_res_domain   *ibv_domain;
+#elif HAVE_DECL_IBV_ALLOC_TD
+    struct ibv_td               *td;
+    struct ibv_pd               *pd;
+    struct ibv_pd               *ibv_domain;
+#endif
 } uct_ib_iface_res_domain_t;
 
 
