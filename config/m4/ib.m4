@@ -159,6 +159,22 @@ AS_IF([test "x$with_ib" == xyes],
                        AC_CHECK_MEMBERS([struct mlx5_srq.cmd_qp],
                                   [], [with_ib_hw_tm=no],
                                       [[#include <infiniband/mlx5_hw.h>]])
+                       AC_CHECK_MEMBERS([struct ibv_mlx5_qp_info.bf.need_lock],
+                                  [], [
+                           AC_MSG_WARN([Cannot use mlx5 QP because it assumes dedicated BF])
+                           AC_MSG_WARN([Please upgrade MellanoxOFED to 3.0 or above])
+                           with_mlx5_hw=no],
+                                       [[#include <infiniband/mlx5_hw.h>]])
+                       AC_CHECK_DECLS([
+                           IBV_EXP_QP_INIT_ATTR_RES_DOMAIN,
+                           IBV_EXP_RES_DOMAIN_THREAD_MODEL,
+                           ibv_exp_create_res_domain,
+                           ibv_exp_destroy_res_domain],
+                                [AC_DEFINE([HAVE_IBV_EXP_RES_DOMAIN], 1, [IB resource domain])], [
+                           AC_MSG_WARN([Cannot use mlx5 accel because resource domains are not supported])
+                           AC_MSG_WARN([Please upgrade MellanoxOFED to 3.1 or above])
+                           with_mlx5_hw=no],
+                                      [[#include <infiniband/verbs_exp.h>]])
                                ], [with_mlx5_hw=no])
               AC_MSG_NOTICE([Checking for DV bare-metal support])
               AC_CHECK_HEADERS([infiniband/mlx5dv.h],
@@ -169,29 +185,11 @@ AS_IF([test "x$with_ib" == xyes],
                        AC_CHECK_LIB([mlx5], [mlx5dv_query_device],
                                     [AC_SUBST(LIB_MLX5, [-lmlx5])],
                                     [with_mlx5_dv=no])])
-                       AC_CHECK_DECLS([mlx5dv_init_obj],
+                       AC_CHECK_DECLS([
+                           mlx5dv_init_obj,
+                           mlx5dv_get_av],
                                   [], [], [[#include <infiniband/mlx5dv.h>]])
                                ], [with_mlx5_dv=no]))
-
-       # Disable mlx5_hw if the driver does not provide BF locking information
-       AS_IF([test "x$ac_cv_have_decl_ibv_mlx5_exp_get_qp_info" == "xyes"],
-             [AC_CHECK_MEMBERS([struct ibv_mlx5_qp_info.bf.need_lock],
-                               [],
-                               [AC_MSG_WARN([Cannot use mlx5 QP because it assumes dedicated BF])
-                                AC_MSG_WARN([Please upgrade MellanoxOFED to 3.0 or above])
-                                with_mlx5_hw=no],
-                               [[#include <infiniband/mlx5_hw.h>]])],
-             [])
-
-       AC_CHECK_DECLS([IBV_EXP_QP_INIT_ATTR_RES_DOMAIN,
-                       IBV_EXP_RES_DOMAIN_THREAD_MODEL,
-                       ibv_exp_create_res_domain,
-                       ibv_exp_destroy_res_domain],
-                      [AC_DEFINE([HAVE_IBV_EXP_RES_DOMAIN], 1, [IB resource domain])],
-                      [AC_MSG_WARN([Cannot use mlx5 accel because resource domains are not supported])
-                       AC_MSG_WARN([Please upgrade MellanoxOFED to 3.1 or above])
-                       with_mlx5_hw=no],
-                      [[#include <infiniband/verbs_exp.h>]])
 
        AS_IF([test "x$with_mlx5_hw" == xyes],
              [AC_MSG_NOTICE([Compiling with mlx5 bare-metal support])

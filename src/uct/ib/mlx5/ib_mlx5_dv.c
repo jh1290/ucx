@@ -52,3 +52,18 @@ int uct_ib_mlx5dv_arm_cq(uct_ib_mlx5_cq_t *cq, int solicited)
 
     return 0;
 }
+
+#if !HAVE_INFINIBAND_MLX5_HW_H
+void uct_ib_mlx5_update_cq_ci(struct ibv_cq *cq, unsigned cq_ci) { }
+
+unsigned uct_ib_mlx5_get_cq_ci(struct ibv_cq *cq) { return 0; }
+
+#endif
+
+#if HAVE_DECL_MLX5DV_GET_AV
+void uct_ib_mlx5_get_av(struct ibv_ah *ah, struct mlx5_wqe_av *av)
+{
+    mlx5dv_get_av(ah, av);
+}
+#endif
+
