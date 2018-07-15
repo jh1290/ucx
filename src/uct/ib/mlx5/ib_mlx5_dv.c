@@ -24,7 +24,7 @@ ucs_status_t uct_ib_mlx5dv_init_obj(uct_ib_mlx5dv_t *obj, uint64_t type)
 
 ucs_status_t uct_ib_mlx5dv_query(void *ctx)
 {
-#if HAVE_DECL_MLX5DV_QUERY_DEVICE
+#if HAVE_DECL_MLX5DV_QUERY_DEVICE && HAVE_DECL_MLX5DV_CONTEXT_MASK_MASKED_ATOMIC
     uct_ib_device_t *dev = (uct_ib_device_t *)ctx;
     const uct_ib_device_spec_t *spec;
     int ret;
@@ -34,6 +34,7 @@ ucs_status_t uct_ib_mlx5dv_query(void *ctx)
         return UCS_OK;
     }
 
+    dev->dv_attr.mlx5.comp_mask = (MLX5DV_CONTEXT_MASK_MASKED_ATOMIC << 1) - 1;
     ret = mlx5dv_query_device(dev->ibv_context, &dev->dv_attr.mlx5);
     if (ret != 0) {
         ucs_error("mlx5dv_query_device() returned %d: %m", ret);

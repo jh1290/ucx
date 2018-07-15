@@ -747,6 +747,20 @@ int uct_ib_atomic_is_supported(uct_ib_device_t *dev, int ext, size_t size)
 {
     const struct ibv_exp_device_attr *dev_attr = &dev->dev_attr;
 
+#if HAVE_DECL_MLX5DV_CONTEXT_MASK_MASKED_ATOMIC
+    if (dev->dv_attr.provider == UCT_IB_PROVIDER_MLX5) {
+        if (!dev->dv_attr.mlx5.masked_atomic_caps.atomic_cap) {
+            return 0;
+        }
+
+        if (ext) {
+            return dev->dv_attr.mlx5.masked_atomic_caps.arg_sizes & size;
+        } else {
+            return size == sizeof(uint64_t); /* IB spec atomics are 64 bit only */
+        }
+    }
+#endif
+
     if (!IBV_EXP_HAVE_ATOMIC_HCA(dev_attr) &&
         !IBV_EXP_HAVE_ATOMIC_GLOB(dev_attr) &&
         !IBV_EXP_HAVE_ATOMIC_HCA_REPLY_BE(dev_attr))
