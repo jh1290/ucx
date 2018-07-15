@@ -37,6 +37,11 @@ typedef struct {
 ucs_status_t uct_ib_mlx5dv_init_obj(uct_ib_mlx5dv_t *obj, uint64_t type);
 
 /**
+ * Query DV device
+ */
+ucs_status_t uct_ib_mlx5dv_query(void *ctx);
+
+/**
  * Update CI to support req_notify_cq
  */
 void uct_ib_mlx5_update_cq_ci(struct ibv_cq *cq, unsigned cq_ci);

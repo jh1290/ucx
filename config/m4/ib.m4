@@ -187,7 +187,8 @@ AS_IF([test "x$with_ib" == xyes],
                                     [with_mlx5_dv=no])])
                        AC_CHECK_DECLS([
                            mlx5dv_init_obj,
-                           mlx5dv_get_av],
+                           mlx5dv_get_av,
+                           mlx5dv_query_device],
                                   [], [], [[#include <infiniband/mlx5dv.h>]])
                        AC_CHECK_MEMBERS([struct mlx5dv_cq.uar],
                                   [], [], [[#include <infiniband/mlx5dv.h>]])

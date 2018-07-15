@@ -17,6 +17,7 @@
 #include <sys/poll.h>
 #include <sched.h>
 
+#include <uct/ib/mlx5/ib_mlx5.h>
 
 #if ENABLE_STATS
 static ucs_stats_class_t uct_ib_device_stats_class = {
@@ -235,6 +236,11 @@ ucs_status_t uct_ib_device_init(uct_ib_device_t *dev,
     ret = ibv_exp_query_device(dev->ibv_context, &dev->dev_attr);
     if (ret != 0) {
         ucs_error("ibv_query_device() returned %d: %m", ret);
+        status = UCS_ERR_IO_ERROR;
+        goto err_free_context;
+    }
+
+    if (uct_ib_mlx5dv_query(dev) != UCS_OK) {
         status = UCS_ERR_IO_ERROR;
         goto err_free_context;
     }

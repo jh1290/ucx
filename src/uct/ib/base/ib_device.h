@@ -15,6 +15,9 @@
 
 #include <endian.h>
 
+#if HAVE_INFINIBAND_MLX5DV_H
+#  include <infiniband/mlx5dv.h>
+#endif
 
 #define UCT_IB_QPN_ORDER            24  /* How many bits can be an IB QP number */
 #define UCT_IB_LRH_LEN              8   /* IB Local routing header */
@@ -114,11 +117,29 @@ typedef struct uct_ib_device_spec {
 
 
 /**
+ * DV specific attrubutes
+ */
+typedef enum {
+    UCT_IB_PROVIDER_UNKNOWN,
+    UCT_IB_PROVIDER_MLX5,
+} uct_ib_provider;
+
+typedef struct uct_ib_dv_attr {
+    uct_ib_provider             provider;
+    union {
+#if HAVE_DECL_MLX5DV_QUERY_DEVICE
+        struct mlx5dv_context   mlx5;
+#endif
+    };
+} uct_ib_dv_attr_t;
+
+/**
  * IB device (corresponds to HCA)
  */
 typedef struct uct_ib_device {
     struct ibv_context          *ibv_context;    /* Verbs context */
     struct ibv_exp_device_attr  dev_attr;        /* Cached device attributes */
+    uct_ib_dv_attr_t            dv_attr;         /* Cached DV specific attributes */
     uint8_t                     first_port;      /* Number of first port (usually 1) */
     uint8_t                     num_ports;       /* Amount of physical ports */
     cpu_set_t                   local_cpus;      /* CPUs local to device */

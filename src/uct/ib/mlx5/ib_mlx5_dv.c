@@ -22,6 +22,29 @@ ucs_status_t uct_ib_mlx5dv_init_obj(uct_ib_mlx5dv_t *obj, uint64_t type)
 }
 #endif
 
+ucs_status_t uct_ib_mlx5dv_query(void *ctx)
+{
+#if HAVE_DECL_MLX5DV_QUERY_DEVICE
+    uct_ib_device_t *dev = (uct_ib_device_t *)ctx;
+    const uct_ib_device_spec_t *spec;
+    int ret;
+
+    spec = uct_ib_device_spec(dev);
+    if (!(spec->flags & UCT_IB_DEVICE_FLAG_MLX5_PRM)) {
+        return UCS_OK;
+    }
+
+    ret = mlx5dv_query_device(dev->ibv_context, &dev->dv_attr.mlx5);
+    if (ret != 0) {
+        ucs_error("mlx5dv_query_device() returned %d: %m", ret);
+        return UCS_ERR_IO_ERROR;
+    }
+    dev->dv_attr.provider = UCT_IB_PROVIDER_MLX5;
+#endif
+
+    return UCS_OK;
+}
+
 enum {
     UCT_IB_MLX5_CQ_SET_CI  = 0,
     UCT_IB_MLX5_CQ_ARM_DB  = 1,
