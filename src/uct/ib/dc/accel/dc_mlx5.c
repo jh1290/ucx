@@ -1158,8 +1158,10 @@ ucs_status_t uct_dc_iface_dci_connect(uct_dc_iface_t *iface,
     {
         attr.ah_attr.is_global      = 1;
     }
+    attr.ah_attr.port_num           = iface->super.super.config.port_num;
     attr.ah_attr.sl                 = iface->super.super.config.sl;
     attr_mask                       = IBV_QP_STATE     |
+                                      IBV_QP_AV        |
                                       IBV_QP_PATH_MTU;
 
     if (ibv_modify_qp(dci->qp, &attr, attr_mask)) {
