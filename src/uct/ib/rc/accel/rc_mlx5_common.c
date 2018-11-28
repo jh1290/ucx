@@ -11,18 +11,6 @@
 #include <uct/ib/rc/base/rc_iface.h>
 
 
-#if ENABLE_STATS
-ucs_stats_class_t uct_rc_mlx5_iface_stats_class = {
-    .name = "mlx5",
-    .num_counters = UCT_RC_MLX5_IFACE_STAT_LAST,
-    .counter_names = {
-     [UCT_RC_MLX5_IFACE_STAT_RX_INL_32] = "rx_inl_32",
-     [UCT_RC_MLX5_IFACE_STAT_RX_INL_64] = "rx_inl_64"
-    }
-};
-#endif
-
-
 #if HAVE_IBV_EXP_DM
 /* uct_mlx5_dm_va is used to get pointer to DM mapped into process address space */
 typedef struct uct_mlx5_dm_va {
@@ -98,16 +86,15 @@ unsigned uct_rc_mlx5_iface_srq_post_recv(uct_rc_iface_t *iface, uct_ib_mlx5_srq_
     return count;
 }
 
-void uct_rc_mlx5_iface_common_prepost_recvs(uct_rc_iface_t *iface,
-                                            uct_rc_mlx5_iface_common_t *mlx5_common)
+void uct_rc_mlx5_iface_common_prepost_recvs(uct_rc_mlx5_iface_common_t *iface)
 {
-    iface->rx.srq.available = iface->rx.srq.quota;
-    iface->rx.srq.quota     = 0;
-    uct_rc_mlx5_iface_srq_post_recv(iface, &mlx5_common->rx.srq);
+    iface->super.rx.srq.available = iface->super.rx.srq.quota;
+    iface->super.rx.srq.quota     = 0;
+    uct_rc_mlx5_iface_srq_post_recv(&iface->super, &iface->rx.srq);
 }
 
 #define UCT_RC_MLX5_DEFINE_ATOMIC_LE_HANDLER(_bits) \
-    static void \
+    void \
     uct_rc_mlx5_common_atomic##_bits##_le_handler(uct_rc_iface_send_op_t *op, \
                                                   const void *resp) \
     { \
@@ -144,7 +131,7 @@ uct_rc_mlx5_iface_common_tag_init(uct_rc_mlx5_iface_common_t *iface,
     struct ibv_qp *cmd_qp;
     int i;
 
-    if (!UCT_RC_IFACE_TM_ENABLED(rc_iface)) {
+    if (!UCT_RC_IFACE_TM_ENABLED(&iface->super)) {
         return UCS_OK;
     }
 
@@ -337,7 +324,7 @@ static void uct_rc_mlx5_iface_common_dm_tl_cleanup(uct_mlx5_dm_data_t *data)
 }
 #endif
 
-static ucs_status_t
+ucs_status_t
 uct_rc_mlx5_iface_common_dm_init(uct_rc_mlx5_iface_common_t *iface,
                                  uct_rc_iface_t *rc_iface,
                                  const uct_ib_mlx5_iface_config_t *mlx5_config)
@@ -367,93 +354,13 @@ fallback:
     return UCS_OK;
 }
 
-static void uct_rc_mlx5_iface_common_dm_cleanup(uct_rc_mlx5_iface_common_t *iface)
+void uct_rc_mlx5_iface_common_dm_cleanup(uct_rc_mlx5_iface_common_t *iface)
 {
 #if HAVE_IBV_EXP_DM
     if (iface->dm.dm) {
         uct_worker_tl_data_put(iface->dm.dm, uct_rc_mlx5_iface_common_dm_tl_cleanup);
     }
 #endif
-}
-
-ucs_status_t uct_rc_mlx5_iface_common_init(uct_rc_mlx5_iface_common_t *iface,
-                                           uct_rc_iface_t *rc_iface,
-                                           const uct_rc_iface_config_t *config,
-                                           const uct_ib_mlx5_iface_config_t *mlx5_config)
-{
-    ucs_status_t status;
-
-    status = uct_ib_mlx5_get_cq(rc_iface->super.cq[UCT_IB_DIR_TX], &iface->cq[UCT_IB_DIR_TX]);
-    if (status != UCS_OK) {
-        return status;
-    }
-
-    status = uct_ib_mlx5_get_cq(rc_iface->super.cq[UCT_IB_DIR_RX], &iface->cq[UCT_IB_DIR_RX]);
-    if (status != UCS_OK) {
-        return status;
-    }
-
-    status = uct_ib_mlx5_srq_init(&iface->rx.srq, rc_iface->rx.srq.srq,
-                                  rc_iface->super.config.seg_size);
-    if (status != UCS_OK) {
-        return status;
-    }
-
-    status = uct_rc_mlx5_iface_common_dm_init(iface, rc_iface, mlx5_config);
-    if (status != UCS_OK) {
-        return status;
-    }
-
-    rc_iface->rx.srq.quota = iface->rx.srq.mask + 1;
-
-    /* By default set to something that is always in cache */
-    iface->rx.pref_ptr = iface;
-
-    status = UCS_STATS_NODE_ALLOC(&iface->stats, &uct_rc_mlx5_iface_stats_class,
-                                  rc_iface->stats);
-    if (status != UCS_OK) {
-        goto cleanup_dm;
-    }
-
-    status = uct_iface_mpool_init(&rc_iface->super.super,
-                                  &iface->tx.atomic_desc_mp,
-                                  sizeof(uct_rc_iface_send_desc_t) + UCT_IB_MAX_ATOMIC_SIZE,
-                                  sizeof(uct_rc_iface_send_desc_t) + UCT_IB_MAX_ATOMIC_SIZE,
-                                  UCS_SYS_CACHE_LINE_SIZE,
-                                  &config->super.tx.mp,
-                                  rc_iface->config.tx_qp_len,
-                                  uct_rc_iface_send_desc_init,
-                                  "rc_mlx5_atomic_desc");
-    if (status != UCS_OK) {
-        UCS_STATS_NODE_FREE(iface->stats);
-        goto cleanup_dm;
-    }
-
-    /* For little-endian atomic reply, override the default functions, to still
-     * treat the response as big-endian when it arrives in the CQE.
-     */
-    if (!(uct_ib_iface_device(&rc_iface->super)->atomic_arg_sizes_be & sizeof(uint64_t))) {
-        rc_iface->config.atomic64_handler    = uct_rc_mlx5_common_atomic64_le_handler;
-    }
-    if (!(uct_ib_iface_device(&rc_iface->super)->ext_atomic_arg_sizes_be & sizeof(uint32_t))) {
-       rc_iface->config.atomic32_ext_handler = uct_rc_mlx5_common_atomic32_le_handler;
-    }
-    if (!(uct_ib_iface_device(&rc_iface->super)->ext_atomic_arg_sizes_be & sizeof(uint64_t))) {
-       rc_iface->config.atomic64_ext_handler = uct_rc_mlx5_common_atomic64_le_handler;
-    }
-
-    return UCS_OK;
-
-cleanup_dm:
-    uct_rc_mlx5_iface_common_dm_cleanup(iface);
-    return status;
-}
-
-void uct_rc_mlx5_iface_common_cleanup(uct_rc_mlx5_iface_common_t *iface)
-{
-    UCS_STATS_NODE_FREE(iface->stats);
-    ucs_mpool_cleanup(&iface->tx.atomic_desc_mp, 1);
-    uct_rc_mlx5_iface_common_dm_cleanup(iface);
 }
 
 void uct_rc_mlx5_iface_common_query(uct_ib_iface_t *iface, uct_iface_attr_t *iface_attr)
