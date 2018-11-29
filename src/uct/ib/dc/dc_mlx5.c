@@ -62,7 +62,6 @@ ucs_config_field_t uct_dc_mlx5_iface_config_table[] = {
     {"", "", NULL,
      ucs_offsetof(uct_dc_mlx5_iface_config_t, mlx5_ud),
      UCS_CONFIG_TYPE_TABLE(uct_ud_mlx5_iface_common_config_table)},
-
     {"", "", NULL,
      ucs_offsetof(uct_dc_mlx5_iface_config_t, super.mlx5_common),
      UCS_CONFIG_TYPE_TABLE(uct_ib_mlx5_iface_config_table)},
@@ -409,8 +408,8 @@ uct_dc_mlx5_ep_short_dm(uct_dc_mlx5_ep_t *ep, uct_rc_mlx5_dm_copy_data_t *cache,
     ucs_status_t status;
     uct_ib_log_sge_t log_sge;
 
-    status = uct_rc_mlx5_common_dm_make_data(&iface->super, &iface->super.super,
-                                             cache, hdr_len, payload, length, &desc,
+    status = uct_rc_mlx5_common_dm_make_data(&iface->super, cache, hdr_len,
+                                             payload, length, &desc,
                                              &buffer, &log_sge);
     if (ucs_unlikely(UCS_STATUS_IS_ERR(status))) {
         return status;
@@ -741,8 +740,7 @@ static unsigned uct_dc_mlx5_iface_progress(void *arg)
     uct_dc_mlx5_iface_t *iface = arg;
     unsigned count;
 
-    count = uct_rc_mlx5_iface_common_poll_rx(&iface->super,
-                                             &iface->super.super, 0);
+    count = uct_rc_mlx5_iface_common_poll_rx(&iface->super, 0);
     if (count > 0) {
         return count;
     }
@@ -945,8 +943,7 @@ static ucs_status_t uct_dc_mlx5_iface_tag_recv_zcopy(uct_iface_h tl_iface,
 {
     uct_dc_mlx5_iface_t *iface = ucs_derived_of(tl_iface, uct_dc_mlx5_iface_t);
 
-    return uct_rc_mlx5_iface_common_tag_recv(&iface->super,
-                                             &iface->super.super, tag, tag_mask,
+    return uct_rc_mlx5_iface_common_tag_recv(&iface->super, tag, tag_mask,
                                              iov, iovcnt, ctx);
 }
 
@@ -956,8 +953,7 @@ static ucs_status_t uct_dc_mlx5_iface_tag_recv_cancel(uct_iface_h tl_iface,
 {
    uct_dc_mlx5_iface_t *iface = ucs_derived_of(tl_iface, uct_dc_mlx5_iface_t);
 
-   return uct_rc_mlx5_iface_common_tag_recv_cancel(&iface->super,
-                                                   &iface->super.super, ctx, force);
+   return uct_rc_mlx5_iface_common_tag_recv_cancel(&iface->super, ctx, force);
 }
 
 static unsigned uct_dc_mlx5_iface_progress_tm(void *arg)
@@ -965,8 +961,7 @@ static unsigned uct_dc_mlx5_iface_progress_tm(void *arg)
     uct_dc_mlx5_iface_t *iface = arg;
     unsigned count;
 
-    count = uct_rc_mlx5_iface_common_poll_rx(&iface->super,
-                                             &iface->super.super, 1);
+    count = uct_rc_mlx5_iface_common_poll_rx(&iface->super, 1);
     if (count > 0) {
         return count;
     }
@@ -1405,9 +1400,7 @@ static ucs_status_t uct_dc_mlx5_iface_tag_init(uct_dc_mlx5_iface_t *iface,
         uct_dc_mlx5_iface_fill_xrq_init_attrs(&iface->super.super, &srq_init_attr, &dc_op);
 
         status = uct_rc_mlx5_iface_common_tag_init(&iface->super,
-                                                   &iface->super.super,
-                                                   &config->super.super,
-                                                   &config->super.mlx5_common,
+                                                   &config->super,
                                                    &srq_init_attr,
                                                    sizeof(struct ibv_exp_tmh_rvh) +
                                                    sizeof(struct ibv_exp_tmh_ravh));
@@ -1418,8 +1411,7 @@ static ucs_status_t uct_dc_mlx5_iface_tag_init(uct_dc_mlx5_iface_t *iface,
         /* TM XRQ is ready, can create DCT now */
         status = uct_dc_mlx5_iface_create_dct(iface);
         if (status != UCS_OK) {
-            uct_rc_mlx5_iface_common_tag_cleanup(&iface->super,
-                                                 &iface->super.super);
+            uct_rc_mlx5_iface_common_tag_cleanup(&iface->super);
             return status;
         }
         iface->super.super.progress = uct_dc_mlx5_iface_progress_tm;
@@ -1437,7 +1429,7 @@ static void uct_dc_mlx5_iface_tag_cleanup(uct_dc_mlx5_iface_t *iface)
         uct_dc_destroy_dct(iface);
     }
 
-    uct_rc_mlx5_iface_common_tag_cleanup(&iface->super, &iface->super.super);
+    uct_rc_mlx5_iface_common_tag_cleanup(&iface->super);
 }
 
 #if HAVE_DC_EXP

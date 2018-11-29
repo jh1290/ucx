@@ -120,9 +120,7 @@ UCT_RC_MLX5_DEFINE_ATOMIC_LE_HANDLER(64)
 
 ucs_status_t
 uct_rc_mlx5_iface_common_tag_init(uct_rc_mlx5_iface_common_t *iface,
-                                  uct_rc_iface_t *rc_iface,
-                                  uct_rc_iface_config_t *rc_config,
-                                  const uct_ib_mlx5_iface_config_t *mlx5_config,
+                                  uct_rc_mlx5_iface_config_t *config,
                                   struct ibv_exp_create_srq_attr *srq_init_attr,
                                   unsigned rndv_hdr_len)
 {
@@ -135,29 +133,29 @@ uct_rc_mlx5_iface_common_tag_init(uct_rc_mlx5_iface_common_t *iface,
         return UCS_OK;
     }
 
-    status = uct_rc_iface_tag_init(rc_iface, rc_config, srq_init_attr,
+    status = uct_rc_iface_tag_init(&iface->super, &config->super, srq_init_attr,
                                    rndv_hdr_len, 0);
     if (status != UCS_OK) {
         goto err;
     }
 
-    cmd_qp = uct_dv_get_cmd_qp(rc_iface->rx.srq.srq);
+    cmd_qp = uct_dv_get_cmd_qp(iface->super.rx.srq.srq);
     if (!cmd_qp) {
         status = UCS_ERR_NO_DEVICE;
         goto err_tag_cleanup;
     }
 
-    status = uct_ib_mlx5_txwq_init(rc_iface->super.super.worker,
-                                   mlx5_config->mmio_mode,
+    status = uct_ib_mlx5_txwq_init(iface->super.super.super.worker,
+                                   iface->tx.mmio_mode,
                                    &iface->tm.cmd_wq.super, cmd_qp);
     if (status != UCS_OK) {
         goto err_tag_cleanup;
     }
 
     iface->tm.cmd_wq.qp_num   = cmd_qp->qp_num;
-    iface->tm.cmd_wq.ops_mask = rc_iface->tm.cmd_qp_len - 1;
+    iface->tm.cmd_wq.ops_mask = iface->super.tm.cmd_qp_len - 1;
     iface->tm.cmd_wq.ops_head = iface->tm.cmd_wq.ops_tail = 0;
-    iface->tm.cmd_wq.ops      = ucs_calloc(rc_iface->tm.cmd_qp_len,
+    iface->tm.cmd_wq.ops      = ucs_calloc(iface->super.tm.cmd_qp_len,
                                            sizeof(uct_rc_mlx5_srq_op_t),
                                            "srq tag ops");
     if (iface->tm.cmd_wq.ops == NULL) {
@@ -166,7 +164,7 @@ uct_rc_mlx5_iface_common_tag_init(uct_rc_mlx5_iface_common_t *iface,
         goto err_tag_cleanup;
     }
 
-    iface->tm.list = ucs_calloc(rc_iface->tm.num_tags + 1,
+    iface->tm.list = ucs_calloc(iface->super.tm.num_tags + 1,
                                 sizeof(uct_rc_mlx5_tag_entry_t), "tm list");
     if (iface->tm.list == NULL) {
         ucs_error("Failed to allocate memory for tag matching list");
@@ -174,7 +172,7 @@ uct_rc_mlx5_iface_common_tag_init(uct_rc_mlx5_iface_common_t *iface,
         goto err_cmd_wq_free;
     }
 
-    for (i = 0; i < rc_iface->tm.num_tags; ++i) {
+    for (i = 0; i < iface->super.tm.num_tags; ++i) {
         iface->tm.list[i].next = &iface->tm.list[i + 1];
     }
 
@@ -186,22 +184,21 @@ uct_rc_mlx5_iface_common_tag_init(uct_rc_mlx5_iface_common_t *iface,
 err_cmd_wq_free:
     ucs_free(iface->tm.cmd_wq.ops);
 err_tag_cleanup:
-    uct_rc_iface_tag_cleanup(rc_iface);
+    uct_rc_iface_tag_cleanup(&iface->super);
 err:
 #endif
 
     return status;
 }
 
-void uct_rc_mlx5_iface_common_tag_cleanup(uct_rc_mlx5_iface_common_t *iface,
-                                          uct_rc_iface_t *rc_iface)
+void uct_rc_mlx5_iface_common_tag_cleanup(uct_rc_mlx5_iface_common_t *iface)
 {
 #if IBV_EXP_HW_TM
-    if (UCT_RC_IFACE_TM_ENABLED(rc_iface)) {
+    if (UCT_RC_IFACE_TM_ENABLED(&iface->super)) {
         uct_ib_mlx5_txwq_cleanup(&iface->tm.cmd_wq.super);
         ucs_free(iface->tm.list);
         ucs_free(iface->tm.cmd_wq.ops);
-        uct_rc_iface_tag_cleanup(rc_iface);
+        uct_rc_iface_tag_cleanup(&iface->super);
     }
 #endif
 }
@@ -334,12 +331,12 @@ uct_rc_mlx5_iface_common_dm_init(uct_rc_mlx5_iface_common_t *iface,
         goto fallback;
     }
 
-    iface->dm.dm = uct_worker_tl_data_get(rc_iface->super.super.worker,
+    iface->dm.dm = uct_worker_tl_data_get(iface->super.super.super.worker,
                                           UCT_IB_MLX5_WORKER_DM_KEY,
                                           uct_mlx5_dm_data_t,
                                           uct_rc_mlx5_iface_common_dm_device_cmp,
                                           uct_rc_mlx5_iface_common_dm_tl_init,
-                                          rc_iface, mlx5_config);
+                                          &iface->super, mlx5_config);
     if (UCS_PTR_IS_ERR(iface->dm.dm)) {
         goto fallback;
     }
