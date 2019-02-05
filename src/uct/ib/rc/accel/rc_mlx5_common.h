@@ -158,7 +158,6 @@ typedef struct uct_rc_mlx5_srq_op {
 typedef struct uct_rc_mlx5_cmd_wq {
     uct_ib_mlx5_txwq_t            super;
     uct_ib_mlx5_qp_t              qp;
-    uint32_t                      qp_num;   /* command QP num */
     uct_rc_mlx5_srq_op_t          *ops;     /* array of operations on command QP */
     int                           ops_head; /* points to the next operation to be completed */
     int                           ops_tail; /* points to the last adde operation*/
@@ -285,6 +284,12 @@ typedef struct uct_rc_mlx5_iface_common {
     UCS_STATS_NODE_DECLARE(stats);
 } uct_rc_mlx5_iface_common_t;
 
+
+typedef struct uct_rc_mlx5_iface_common_ops {
+    uct_rc_iface_ops_t               super;
+    ucs_status_t                     (*get_cmd_qp)(uct_rc_mlx5_iface_common_t *iface);
+} uct_rc_mlx5_iface_common_ops_t;
+
 /**
  * Common RC/DC mlx5 interface configuration
  */
@@ -300,7 +305,7 @@ typedef struct uct_rc_mlx5_iface_common_config {
 } uct_rc_mlx5_iface_common_config_t;
 
 
-UCS_CLASS_DECLARE(uct_rc_mlx5_iface_common_t, uct_rc_iface_ops_t*,
+UCS_CLASS_DECLARE(uct_rc_mlx5_iface_common_t, uct_rc_mlx5_iface_common_ops_t*,
                   uct_md_h, uct_worker_h,
                   const uct_iface_params_t*, uct_rc_mlx5_iface_common_config_t*,
                   uct_ib_iface_init_attr_t*);
@@ -495,6 +500,8 @@ ucs_status_t uct_rc_mlx5_ep_tag_rndv_cancel(uct_ep_h tl_ep, void *op);
 void uct_rc_mlx5_common_packet_dump(uct_base_iface_t *iface, uct_am_trace_type_t type,
                                     void *data, size_t length, size_t valid_length,
                                     char *buffer, size_t max);
+
+ucs_status_t uct_rc_mlx5_get_cmd_qp(uct_rc_mlx5_iface_common_t *iface);
 
 static UCS_F_ALWAYS_INLINE void
 uct_rc_mlx5_am_hdr_fill(uct_rc_mlx5_hdr_t *rch, uint8_t id)

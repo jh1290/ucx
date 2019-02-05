@@ -568,6 +568,64 @@ static void uct_dc_mlx5_iface_cleanup_dcis(uct_dc_mlx5_iface_t *iface)
     }
 }
 
+static ucs_status_t uct_dc_mlx5_get_cmd_qp(uct_rc_mlx5_iface_common_t *rc_iface)
+{
+    uct_dc_mlx5_iface_t *iface = ucs_derived_of(rc_iface, uct_dc_mlx5_iface_t);
+    uct_ib_mlx5_md_t *md       = ucs_derived_of(rc_iface->super.super.super.md,
+                                                uct_ib_mlx5_md_t);
+    uct_ib_device_t *dev       = &md->super.dev;
+    uct_ib_qp_attr_t attr      = {};
+    struct ibv_ah_attr ah      = {};
+    ucs_status_t status;
+
+    if (!(md->flags & UCT_IB_MLX5_MD_FLAG_DEVX)) {
+        return uct_rc_mlx5_get_cmd_qp(rc_iface);
+    }
+
+    status = uct_ib_mlx5_txwq_init_devx(rc_iface->super.super.super.worker, md,
+                                        &iface->super.tm.cmd_wq.qp,
+                                        &iface->super.tm.cmd_wq.super,
+                                        UCT_IB_MLX5_MMIO_MODE_BF_POST);
+    if (status != UCS_OK) {
+        return status;
+    }
+
+    attr.cap.max_send_wr  = iface->super.tm.cmd_qp_len;
+    attr.cap.max_send_sge = 1;
+    attr.ibv.pd           = md->super.pd;
+    attr.ibv.send_cq      = iface->super.super.super.cq[UCT_IB_DIR_RX];
+    attr.ibv.recv_cq      = iface->super.super.super.cq[UCT_IB_DIR_RX];
+    attr.srq              = iface->super.super.rx.srq.srq;
+    attr.port             = dev->first_port;
+    status = uct_ib_mlx5dv_create_qp(&iface->super.super.super,
+                                     &iface->super.tm.cmd_wq.super,
+                                     NULL, &attr,
+                                     &iface->super.tm.cmd_wq.qp);
+    if (status != UCS_OK) {
+        return status;
+    }
+
+    ah.is_global          = 1;
+    ah.grh.dgid           = iface->super.super.super.gid;
+    ah.dlid               = uct_ib_device_port_attr(dev, attr.port)->lid;
+    ah.port_num           = dev->first_port;
+    status = uct_ib_mlx5dv_connect_qp(&iface->super.super.super,
+                                      &iface->super.tm.cmd_wq.qp,
+                                      iface->super.tm.cmd_wq.qp.qp_num,
+                                      &ah);
+
+    if (status != UCS_OK) {
+        goto err;
+    }
+
+    iface->super.tm.cmd_qp = NULL;
+    return UCS_OK;
+
+err:
+    uct_ib_mlx5dv_destroy_qp(&iface->super.tm.cmd_wq.qp);
+    return status;
+}
+
 ucs_status_t uct_ib_mlx5_set_srq_dc_params(uct_dc_mlx5_iface_t *iface)
 {
 #if HAVE_DEVX
@@ -1123,7 +1181,8 @@ static void uct_dc_mlx5_iface_handle_failure(uct_ib_iface_t *ib_iface,
     }
 }
 
-static uct_rc_iface_ops_t uct_dc_mlx5_iface_ops = {
+static uct_rc_mlx5_iface_common_ops_t uct_dc_mlx5_iface_ops = {
+    {
     {
     {
     .ep_put_short             = uct_dc_mlx5_ep_put_short,
@@ -1178,6 +1237,8 @@ static uct_rc_iface_ops_t uct_dc_mlx5_iface_ops = {
     .init_rx                  = uct_dc_mlx5_init_rx,
     .fc_ctrl                  = uct_dc_mlx5_ep_fc_ctrl,
     .fc_handler               = uct_dc_mlx5_iface_fc_handler,
+    },
+    .get_cmd_qp               = uct_dc_mlx5_get_cmd_qp,
 };
 
 static UCS_CLASS_INIT_FUNC(uct_dc_mlx5_iface_t, uct_md_h md, uct_worker_h worker,
@@ -1292,6 +1353,10 @@ static UCS_CLASS_CLEANUP_FUNC(uct_dc_mlx5_iface_t)
     uct_dc_mlx5_iface_dcis_destroy(self, self->tx.ndci);
     uct_dc_mlx5_iface_cleanup_fc_ep(self);
     ucs_arbiter_cleanup(&self->tx.dci_arbiter);
+
+    if (UCT_RC_MLX5_TM_ENABLED(&self->super)) {
+        uct_ib_mlx5dv_destroy_qp(&self->super.tm.cmd_wq.qp);
+    }
 }
 
 UCS_CLASS_DEFINE(uct_dc_mlx5_iface_t, uct_rc_mlx5_iface_common_t);
