@@ -73,6 +73,12 @@ BEGIN_C_DECLS
         pow2; \
     })
 
+#define ucs_roundup_pow2_or0(_n) \
+    ( (_n) == 0 ? 0 : ucs_roundup_pow2(_n) )
+
+#define ucs_ilog2_or0(_n) \
+    ( (_n) == 0 ? 0 : ucs_ilog2(_n) )
+
 /* Return values: 0 - aligned, non-0 - unaligned */
 #define ucs_check_if_align_pow2(_n, _p) ((_n) & ((_p) - 1))
 
