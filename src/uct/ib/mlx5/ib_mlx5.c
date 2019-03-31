@@ -247,7 +247,6 @@ static void uct_ib_mlx5_res_domain_cleanup(uct_ib_mlx5_res_domain_t *res_domain)
 ucs_status_t uct_ib_mlx5_iface_init_res_domain(uct_ib_iface_t *iface,
                                                uct_ib_mlx5_qp_t *qp)
 {
-    ucs_assert(qp->type == UCT_IB_MLX5_QP_TYPE_VERBS);
     qp->verbs.rd = uct_worker_tl_data_get(iface->super.worker,
                                           UCT_IB_MLX5_RES_DOMAIN_KEY,
                                           uct_ib_mlx5_res_domain_t,
