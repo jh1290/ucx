@@ -145,11 +145,149 @@ static ucs_status_t uct_ib_mlx5dv_memh_dereg(uct_ib_md_t *ibmd,
 #endif
 }
 
-static ucs_status_t uct_ib_mlx5dv_md_odp_query(uct_md_h uct_md, uct_md_attr_t *md_attr)
+ucs_status_t
+uct_ib_mlx5dv_prefetch_internal(uct_ib_mem_t *memh, void *addr, size_t length)
+{
+#if HAVE_DECL_IBV_EXP_PREFETCH_MR
+    struct ibv_exp_prefetch_attr attr;
+    int ret;
+
+    if ((memh->flags & UCT_IB_MEM_FLAG_ODP)) {
+        if ((addr < memh->mr->addr) ||
+            (addr + length > memh->mr->addr + memh->mr->length)) {
+            return UCS_ERR_INVALID_PARAM;
+        }
+        ucs_debug("memh %p prefetch %p length %llu", memh, addr,
+                  (unsigned long long)length);
+        attr.flags     = IBV_EXP_PREFETCH_WRITE_ACCESS;
+        attr.addr      = addr;
+        attr.length    = length;
+        attr.comp_mask = 0;
+
+        ret = UCS_PROFILE_CALL(ibv_exp_prefetch_mr, memh->mr, &attr);
+        if (ret) {
+            ucs_error("ibv_exp_prefetch_mr(addr=%p length=%zu) returned %d: %m",
+                      attr.addr, attr.length, ret);
+            return UCS_ERR_IO_ERROR;
+        }
+    }
+#endif
+    return UCS_OK;
+}
+
+static ucs_status_t uct_ib_mlx5dv_md_reg(uct_md_h uct_md, void *address, size_t length,
+                                         unsigned flags, uct_mem_h *memh_p)
+{
+    uct_ib_mlx5_md_t *md = ucs_derived_of(uct_md, uct_ib_mlx5_md_t);
+    uct_ib_mlx5_mem_t *memh;
+    ucs_status_t status;
+
+    memh = ucs_calloc(1, sizeof(uct_ib_mlx5_mem_t), "ib_memh");
+    if (memh == NULL) {
+        return UCS_ERR_NO_MEMORY;
+    }
+
+    status = uct_ib_mem_reg_internal(uct_md, address, length, flags, 0, &memh->super);
+    if (status != UCS_OK) {
+        ucs_free(memh);
+        return status;
+    }
+
+    if (md->super.config.odp.prefetch) {
+        uct_ib_mlx5dv_prefetch_internal(&memh->super, address, length);
+    }
+
+    *memh_p = &memh->super;
+
+    return UCS_OK;
+}
+
+static ucs_status_t uct_ib_mlx5dv_md_query(uct_md_h uct_md, uct_md_attr_t *md_attr)
 {
     ucs_status_t status;
 
     status = uct_ib_md_query(uct_md, md_attr);
+    if (status != UCS_OK) {
+        return status;
+    }
+
+    md_attr->cap.flags |= UCT_MD_FLAG_ADVISE;
+    return UCS_OK;
+}
+
+static ucs_status_t
+uct_ib_mlx5dv_md_advise(uct_md_h uct_md, uct_mem_h memh, void *addr,
+                        size_t length, unsigned advice)
+{
+    uct_ib_mlx5_md_t *md = ucs_derived_of(uct_md, uct_ib_mlx5_md_t);
+
+    ucs_debug("memh %p advice %d", memh, advice);
+    if ((advice == UCT_MADV_WILLNEED) && !md->super.config.odp.prefetch) {
+        return uct_ib_mlx5dv_prefetch_internal(memh, addr, length);
+    }
+    return UCS_OK;
+}
+
+static uct_md_ops_t uct_ib_mlx5dv_md_ops = {
+    .close             = uct_ib_md_close,
+    .query             = uct_ib_mlx5dv_md_query,
+    .mem_reg           = uct_ib_mlx5dv_md_reg,
+    .mem_dereg         = uct_ib_mem_dereg,
+    .mem_advise        = uct_ib_mlx5dv_md_advise,
+    .mkey_pack         = uct_ib_mkey_pack,
+    .is_mem_type_owned = (void*)ucs_empty_function_return_zero,
+};
+
+static ucs_status_t uct_ib_mlx5dv_md_rch_reg(void *context, ucs_rcache_t *rcache,
+                                             void *arg, ucs_rcache_region_t *rregion,
+                                             uint16_t rcache_mem_reg_flags)
+{
+    uct_ib_rcache_region_t *region = ucs_derived_of(rregion, uct_ib_rcache_region_t);
+    uct_ib_mlx5_md_t *md           = context;
+    int *flags = arg;
+    int silent = (rcache_mem_reg_flags & UCS_RCACHE_MEM_REG_HIDE_ERRORS) ||
+                 (*flags & UCT_MD_MEM_FLAG_HIDE_ERRORS);
+    ucs_status_t status;
+
+    status = uct_ib_mem_reg_internal(&md->super.super, (void*)region->super.super.start,
+                                     region->super.super.end - region->super.super.start,
+                                     *flags, silent, &region->memh);
+    if (status != UCS_OK) {
+        return status;
+    }
+
+    if (md->super.config.odp.prefetch) {
+        uct_ib_mlx5dv_prefetch_internal((void*)&region->memh,
+                                        (void*)region->super.super.start,
+                                        region->super.super.end -
+                                        region->super.super.start);
+    }
+
+    return UCS_OK;
+}
+
+static struct {
+    ucs_rcache_ops_t rcache_ops;
+    uct_md_ops_t mem_ops;
+} uct_ib_mlx5dv_md_rcache_ops = { {
+    .mem_reg           = uct_ib_mlx5dv_md_rch_reg,
+    .mem_dereg         = uct_ib_rcache_mem_dereg_cb,
+    .dump_region       = uct_ib_rcache_dump_region_cb,
+}, {
+    .close             = uct_ib_md_close,
+    .query             = uct_ib_mlx5dv_md_query,
+    .mem_reg           = uct_ib_mem_rcache_reg,
+    .mem_dereg         = uct_ib_mem_rcache_dereg,
+    .mem_advise        = uct_ib_mlx5dv_md_advise,
+    .mkey_pack         = uct_ib_mkey_pack,
+    .is_mem_type_owned = (void*)ucs_empty_function_return_zero,
+} };
+
+static ucs_status_t uct_ib_mlx5dv_md_odp_query(uct_md_h uct_md, uct_md_attr_t *md_attr)
+{
+    ucs_status_t status;
+
+    status = uct_ib_mlx5dv_md_query(uct_md, md_attr);
     if (status != UCS_OK) {
         return status;
     }
@@ -166,12 +304,12 @@ static ucs_status_t uct_ib_mlx5dv_md_odp_reg(uct_md_h uct_md, void *address,
     uct_ib_mlx5_md_t *md = ucs_derived_of(uct_md, uct_ib_mlx5_md_t);
 
     if (flags & UCT_MD_MEM_FLAG_LOCK) {
-        return uct_ib_mem_reg(uct_md, address, length, flags, memh_p);
+        return uct_ib_mlx5dv_md_reg(uct_md, address, length, flags, memh_p);
     }
 
     ucs_assert(md->global_odp.super.mr != NULL);
     if (md->super.config.odp.prefetch) {
-        uct_ib_mem_prefetch_internal(&md->super, (void*)&md->global_odp, address, length);
+        uct_ib_mlx5dv_prefetch_internal(&md->global_odp.super, address, length);
     }
     *memh_p = &md->global_odp;
     return UCS_OK;
@@ -193,7 +331,7 @@ static uct_md_ops_t UCS_V_UNUSED uct_ib_mlx5dv_md_odp_ops = {
     .query             = uct_ib_mlx5dv_md_odp_query,
     .mem_reg           = uct_ib_mlx5dv_md_odp_reg,
     .mem_dereg         = uct_ib_mlx5dv_md_odp_dereg,
-    .mem_advise        = uct_ib_mem_advise,
+    .mem_advise        = uct_ib_mlx5dv_md_advise,
     .mkey_pack         = uct_ib_mkey_pack,
     .is_mem_type_owned = (void*)ucs_empty_function_return_zero,
 };
@@ -208,7 +346,9 @@ uct_ib_mlx5dv_parse_reg_methods(uct_ib_mlx5_md_t *md, uct_md_attr_t *md_attr,
     for (i = 0; i < md_config->reg_methods.count; ++i) {
         if (!strcasecmp(md_config->reg_methods.rmtd[i], "rcache")) {
             status = uct_ib_md_init_rcache(&md->super, md_attr, md_config,
-                                           sizeof(uct_ib_mlx5_mem_t));
+                                           sizeof(uct_ib_mlx5_mem_t),
+                                           &uct_ib_mlx5dv_md_rcache_ops.mem_ops,
+                                           &uct_ib_mlx5dv_md_rcache_ops.rcache_ops);
             if (status == UCS_OK) {
                 return UCS_OK;
             }
@@ -248,6 +388,7 @@ uct_ib_mlx5dv_parse_reg_methods(uct_ib_mlx5_md_t *md, uct_md_attr_t *md_attr,
             md->super.reg_cost          = md_config->uc_reg_cost;
             ucs_debug("%s: using direct registration",
                       uct_ib_device_name(&md->super.dev));
+            md->super.super.ops         = &uct_ib_mlx5dv_md_ops;
             return UCS_OK;
         }
     }
@@ -668,16 +809,15 @@ void uct_ib_mlx5dv_md_cleanup(uct_ib_md_t *ibmd)
 #endif
 }
 
-static uct_ib_md_ops_t uct_ib_mlx5dv_md_ops = {
+static uct_ib_md_ops_t uct_ib_mlx5dv_md_open_ops = {
     .open             = uct_ib_mlx5dv_md_open,
     .init_priv        = uct_ib_mlx5dv_md_init,
     .cleanup_priv     = uct_ib_mlx5dv_md_cleanup,
-    .memh_struct_size = sizeof(uct_ib_mlx5_mem_t),
     .reg_atomic_key   = uct_ib_mlx5dv_memh_reg,
     .dereg_atomic_key = uct_ib_mlx5dv_memh_dereg,
 };
 
-UCT_IB_MD_OPS(uct_ib_mlx5dv_md_ops, 1);
+UCT_IB_MD_OPS(uct_ib_mlx5dv_md_open_ops, 1);
 
 int uct_ib_mlx5dv_arm_cq(uct_ib_mlx5_cq_t *cq, int solicited)
 {

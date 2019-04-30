@@ -141,7 +141,6 @@ typedef struct uct_ib_md_ops {
                                          const uct_ib_md_config_t *md_config);
     void                    (*cleanup_priv)(uct_ib_md_t *md);
 
-    size_t                  memh_struct_size;
     ucs_status_t            (*reg_atomic_key)(struct uct_ib_md *md,
                                               uct_ib_mem_t *memh,
                                               off_t offset);
@@ -258,22 +257,31 @@ ucs_status_t uct_ib_md_query(uct_md_h uct_md, uct_md_attr_t *md_attr);
 
 ucs_status_t uct_ib_md_init_rcache(uct_ib_md_t *md, uct_md_attr_t *md_attr,
                                    const uct_ib_md_config_t *md_config,
-                                   size_t memh_struct_size);
+                                   size_t memh_struct_size, uct_md_ops_t *ops,
+                                   ucs_rcache_ops_t *rc_ops);
 
-ucs_status_t uct_ib_mem_reg(uct_md_h uct_md, void *address, size_t length,
-                            unsigned flags, uct_mem_h *memh_p);
+ucs_status_t uct_ib_mem_rcache_reg(uct_md_h uct_md, void *address,
+                                   size_t length, unsigned flags,
+                                   uct_mem_h *memh_p);
+
+ucs_status_t uct_ib_mem_rcache_dereg(uct_md_h uct_md, uct_mem_h memh);
 
 ucs_status_t uct_ib_mem_dereg(uct_md_h uct_md, uct_mem_h memh);
-
-ucs_status_t uct_ib_mem_advise(uct_md_h uct_md, uct_mem_h memh,
-                               void *addr, size_t length, unsigned advice);
 
 ucs_status_t uct_ib_mkey_pack(uct_md_h uct_md, uct_mem_h memh,
                               void *rkey_buffer);
 
-ucs_status_t
-uct_ib_mem_prefetch_internal(uct_ib_md_t *md, uct_ib_mem_t *memh, void *addr, size_t length);
+ucs_status_t uct_ib_mem_reg_internal(uct_md_h uct_md, void *address,
+                                     size_t length, unsigned flags,
+                                     int silent, uct_ib_mem_t *memh);
 
 void uct_ib_mem_init(uct_ib_mem_t *memh, unsigned uct_flags, uint64_t exp_access);
+
+void uct_ib_rcache_mem_dereg_cb(void *context, ucs_rcache_t *rcache,
+                                ucs_rcache_region_t *rregion);
+
+void uct_ib_rcache_dump_region_cb(void *context, ucs_rcache_t *rcache,
+                                  ucs_rcache_region_t *rregion, char *buf,
+                                  size_t max);
 
 #endif
