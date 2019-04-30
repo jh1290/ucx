@@ -4,19 +4,12 @@
 * See file LICENSE for terms.
 */
 
-#include <ucs/arch/bitops.h>
 #include "ib_mlx5.h"
 #include "ib_mlx5_log.h"
 #include "ib_mlx5_ifc.h"
 
-#if HAVE_DEVX
-typedef struct uct_ib_mlx5_mem {
-    uct_ib_mem_t             super;
-    struct mlx5dv_devx_obj   *atomic_dvmr;
-} uct_ib_mlx5_mem_t;
-#else
-typedef struct uct_ib_mem uct_ib_mlx5_mem_t;
-#endif
+#include <ucs/arch/bitops.h>
+#include <ucs/profile/profile.h>
 
 typedef struct uct_ib_mlx5_dbrec_page {
     struct mlx5dv_devx_umem *mem;
@@ -152,6 +145,116 @@ static ucs_status_t uct_ib_mlx5dv_memh_dereg(uct_ib_md_t *ibmd,
 #endif
 }
 
+static ucs_status_t uct_ib_mlx5dv_md_odp_query(uct_md_h uct_md, uct_md_attr_t *md_attr)
+{
+    ucs_status_t status;
+
+    status = uct_ib_md_query(uct_md, md_attr);
+    if (status != UCS_OK) {
+        return status;
+    }
+
+    /* ODP supports only host memory */
+    md_attr->cap.reg_mem_types &= UCS_BIT(UCT_MD_MEM_TYPE_HOST);
+    return UCS_OK;
+}
+
+static ucs_status_t uct_ib_mlx5dv_md_odp_reg(uct_md_h uct_md, void *address,
+                                             size_t length, unsigned flags,
+                                             uct_mem_h *memh_p)
+{
+    uct_ib_mlx5_md_t *md = ucs_derived_of(uct_md, uct_ib_mlx5_md_t);
+
+    if (flags & UCT_MD_MEM_FLAG_LOCK) {
+        return uct_ib_mem_reg(uct_md, address, length, flags, memh_p);
+    }
+
+    ucs_assert(md->global_odp.super.mr != NULL);
+    if (md->super.config.odp.prefetch) {
+        uct_ib_mem_prefetch_internal(&md->super, (void*)&md->global_odp, address, length);
+    }
+    *memh_p = &md->global_odp;
+    return UCS_OK;
+}
+
+static ucs_status_t uct_ib_mlx5dv_md_odp_dereg(uct_md_h uct_md, uct_mem_h memh)
+{
+    uct_ib_mlx5_md_t *md = ucs_derived_of(uct_md, uct_ib_mlx5_md_t);
+
+    if (memh == &md->global_odp) {
+        return UCS_OK;
+    }
+
+    return uct_ib_mem_dereg(uct_md, memh);
+}
+
+static uct_md_ops_t UCS_V_UNUSED uct_ib_mlx5dv_md_odp_ops = {
+    .close             = uct_ib_md_close,
+    .query             = uct_ib_mlx5dv_md_odp_query,
+    .mem_reg           = uct_ib_mlx5dv_md_odp_reg,
+    .mem_dereg         = uct_ib_mlx5dv_md_odp_dereg,
+    .mem_advise        = uct_ib_mem_advise,
+    .mkey_pack         = uct_ib_mkey_pack,
+    .is_mem_type_owned = (void*)ucs_empty_function_return_zero,
+};
+
+static ucs_status_t
+uct_ib_mlx5dv_parse_reg_methods(uct_ib_mlx5_md_t *md, uct_md_attr_t *md_attr,
+                                const uct_ib_md_config_t *md_config)
+{
+    ucs_status_t status;
+    int i;
+
+    for (i = 0; i < md_config->reg_methods.count; ++i) {
+        if (!strcasecmp(md_config->reg_methods.rmtd[i], "rcache")) {
+            status = uct_ib_md_init_rcache(&md->super, md_attr, md_config,
+                                           sizeof(uct_ib_mlx5_mem_t));
+            if (status == UCS_OK) {
+                return UCS_OK;
+            }
+#if HAVE_DECL_IBV_EXP_REG_MR && HAVE_DECL_IBV_EXP_ODP_SUPPORT_IMPLICIT
+        } else if (!strcasecmp(md_config->reg_methods.rmtd[i], "odp")) {
+            if (!uct_ib_device_odp_has_global_mr(&md->super.dev)) {
+                ucs_debug("%s: on-demand-paging with global memory region is "
+                          "not supported", uct_ib_device_name(&md->super.dev));
+                continue;
+            }
+
+            struct ibv_exp_reg_mr_in in;
+            memset(&in, 0, sizeof(in));
+            in.pd                       = md->super.pd;
+            in.length                   = IBV_EXP_IMPLICIT_MR_SIZE;
+            in.exp_access               = UCT_IB_MEM_ACCESS_FLAGS |
+                                          IBV_EXP_ACCESS_ON_DEMAND;
+            md->global_odp.super.mr     = UCS_PROFILE_CALL(ibv_exp_reg_mr, &in);
+            if (md->global_odp.super.mr == NULL) {
+                ucs_debug("%s: failed to register global mr: %m",
+                          uct_ib_device_name(&md->super.dev));
+                continue;
+            }
+
+            md->global_odp.super.lkey   = md->global_odp.super.mr->lkey;
+            md->global_odp.super.flags  = UCT_IB_MEM_FLAG_ODP |
+                                          UCT_IB_MEM_FLAG_ODP_IMPLICIT;
+            md->super.super.ops         = &uct_ib_mlx5dv_md_odp_ops;
+            md->super.reg_cost.overhead = 10e-9;
+            md->super.reg_cost.growth   = 0;
+            uct_ib_mem_init(&md->global_odp.super, 0, in.exp_access);
+            ucs_debug("%s: using odp global key",
+                      uct_ib_device_name(&md->super.dev));
+            return UCS_OK;
+#endif
+        } else if (!strcmp(md_config->reg_methods.rmtd[i], "direct")) {
+            md->super.reg_cost          = md_config->uc_reg_cost;
+            ucs_debug("%s: using direct registration",
+                      uct_ib_device_name(&md->super.dev));
+            return UCS_OK;
+        }
+    }
+
+    return UCS_ERR_INVALID_PARAM;
+}
+
 #if HAVE_DEVX
 
 static ucs_status_t uct_ib_mlx5_add_page(ucs_mpool_t *mp, size_t *size_p, void **page_p)
@@ -205,6 +308,7 @@ static ucs_mpool_ops_t uct_ib_mlx5_dbrec_ops = {
 };
 
 static ucs_status_t uct_ib_mlx5dv_md_open(struct ibv_device *ibv_device,
+                                          const uct_ib_md_config_t *md_config,
                                           uct_ib_md_t **p_md)
 {
     uint32_t out[UCT_IB_MLX5DV_ST_SZ_DW(query_hca_cap_out)] = {};
@@ -278,15 +382,6 @@ static ucs_status_t uct_ib_mlx5dv_md_open(struct ibv_device *ibv_device,
         goto err_free;
     }
 
-    status = ucs_mpool_init(&md->dbrec_pool, 0,
-                            sizeof(uct_ib_mlx5_dbrec_t), 0,
-                            UCS_SYS_CACHE_LINE_SIZE,
-                            ucs_get_page_size() / UCS_SYS_CACHE_LINE_SIZE - 1,
-                            UINT_MAX, &uct_ib_mlx5_dbrec_ops, "devx dbrec");
-    if (status != UCS_OK) {
-        goto err_free;
-    }
-
     if (atomic) {
         int ops = UCT_IB_MLX5_ATOMIC_OPS_CMP_SWAP |
                   UCT_IB_MLX5_ATOMIC_OPS_FETCH_ADD;
@@ -341,13 +436,6 @@ err_free_context:
     ibv_close_device(ctx);
 err:
     return status;
-}
-
-void uct_ib_mlx5dv_md_cleanup(uct_ib_md_t *ibmd)
-{
-    uct_ib_mlx5_md_t *md = ucs_derived_of(ibmd, uct_ib_mlx5_md_t);
-
-    ucs_mpool_cleanup(&md->dbrec_pool, 1);
 }
 
 ucs_status_t uct_ib_mlx5_get_compact_av(uct_ib_iface_t *iface, int *compact_av)
@@ -455,6 +543,7 @@ err_cq:
 }
 
 static ucs_status_t uct_ib_mlx5dv_md_open(struct ibv_device *ibv_device,
+                                          const uct_ib_md_config_t *md_config,
                                           uct_ib_md_t **p_md)
 {
     ucs_status_t status = UCS_OK;
@@ -539,13 +628,50 @@ err:
     return status;
 }
 
-void uct_ib_mlx5dv_md_cleanup(uct_ib_md_t *ibmd) { }
-
 #endif
+
+static ucs_status_t
+uct_ib_mlx5dv_md_init(uct_ib_md_t *ibmd, uct_md_attr_t *md_attr,
+                      const uct_ib_md_config_t *md_config)
+{
+    uct_ib_mlx5_md_t *md = ucs_derived_of(ibmd, uct_ib_mlx5_md_t);
+#if HAVE_DEVX
+    ucs_status_t status;
+
+    status = ucs_mpool_init(&md->dbrec_pool, 0,
+                            sizeof(uct_ib_mlx5_dbrec_t), 0,
+                            UCS_SYS_CACHE_LINE_SIZE,
+                            ucs_get_page_size() / UCS_SYS_CACHE_LINE_SIZE - 1,
+                            UINT_MAX, &uct_ib_mlx5_dbrec_ops, "devx dbrec");
+    if (status != UCS_OK) {
+        return status;
+    }
+#endif
+
+    return uct_ib_mlx5dv_parse_reg_methods(md, md_attr, md_config);
+}
+
+void uct_ib_mlx5dv_md_cleanup(uct_ib_md_t *ibmd)
+{
+    uct_ib_mlx5_md_t *md = ucs_derived_of(ibmd, uct_ib_mlx5_md_t);
+
+    if (md->super.rcache != NULL) {
+        ucs_rcache_destroy(md->super.rcache);
+    }
+
+    if (md->global_odp.super.mr != NULL) {
+        UCS_PROFILE_CALL(ibv_dereg_mr, md->global_odp.super.mr);
+    }
+
+#if HAVE_DEVX
+    ucs_mpool_cleanup(&md->dbrec_pool, 1);
+#endif
+}
 
 static uct_ib_md_ops_t uct_ib_mlx5dv_md_ops = {
     .open             = uct_ib_mlx5dv_md_open,
-    .cleanup          = uct_ib_mlx5dv_md_cleanup,
+    .init_priv        = uct_ib_mlx5dv_md_init,
+    .cleanup_priv     = uct_ib_mlx5dv_md_cleanup,
     .memh_struct_size = sizeof(uct_ib_mlx5_mem_t),
     .reg_atomic_key   = uct_ib_mlx5dv_memh_reg,
     .dereg_atomic_key = uct_ib_mlx5dv_memh_dereg,

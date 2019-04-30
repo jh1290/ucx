@@ -21,6 +21,11 @@
 
 #define UCT_IB_MD_DEFAULT_GID_INDEX 0   /**< The gid index used by default for an IB/RoCE port */
 
+#define UCT_IB_MEM_ACCESS_FLAGS  (IBV_ACCESS_LOCAL_WRITE | \
+                                  IBV_ACCESS_REMOTE_WRITE | \
+                                  IBV_ACCESS_REMOTE_READ | \
+                                  IBV_ACCESS_REMOTE_ATOMIC)
+
 /**
  * IB MD statistics counters
  */
@@ -34,9 +39,11 @@ enum {
 enum {
     UCT_IB_MEM_FLAG_ODP             = UCS_BIT(0), /**< The memory region has on
                                                        demand paging enabled */
-    UCT_IB_MEM_FLAG_ATOMIC_MR       = UCS_BIT(1), /**< The memory region has UMR
+    UCT_IB_MEM_FLAG_ODP_IMPLICIT    = UCS_BIT(1), /**< The memory region has implicit
+                                                       on demand paging enabled */
+    UCT_IB_MEM_FLAG_ATOMIC_MR       = UCS_BIT(2), /**< The memory region has UMR
                                                        for the atomic access */
-    UCT_IB_MEM_ACCESS_REMOTE_ATOMIC = UCS_BIT(2)  /**< An atomic access was 
+    UCT_IB_MEM_ACCESS_REMOTE_ATOMIC = UCS_BIT(3)  /**< An atomic access was 
                                                        requested for the memory
                                                        region */
 };
@@ -76,31 +83,16 @@ typedef struct uct_ib_mem {
 
 struct uct_ib_md;
 
-typedef struct uct_ib_md_ops {
-    ucs_status_t            (*open)(struct ibv_device *ibv_device,
-                                    struct uct_ib_md **p_md);
-    void                    (*cleanup)(struct uct_ib_md *);
-
-    size_t                  memh_struct_size;
-    ucs_status_t            (*reg_atomic_key)(struct uct_ib_md *md,
-                                              uct_ib_mem_t *memh,
-                                              off_t offset);
-    ucs_status_t            (*dereg_atomic_key)(struct uct_ib_md *md,
-                                                uct_ib_mem_t *memh);
-} uct_ib_md_ops_t;
-
-
 /**
  * IB memory domain.
  */
 typedef struct uct_ib_md {
     uct_md_t                 super;
     ucs_rcache_t             *rcache;   /**< Registration cache (can be NULL) */
-    uct_ib_mem_t             global_odp;/**< Implicit ODP memory handle */
     struct ibv_pd            *pd;       /**< IB memory domain */
     uct_ib_device_t          dev;       /**< IB device */
     uct_linear_growth_t      reg_cost;  /**< Memory registration cost */
-    uct_ib_md_ops_t          *ops;
+    struct uct_ib_md_ops     *ops;
     /* keep it in md because pd is needed to create umr_qp/cq */
     struct ibv_qp            *umr_qp;   /* special QP for creating UMR */
     struct ibv_cq            *umr_cq;   /* special CQ for creating UMR */
@@ -139,6 +131,23 @@ typedef struct uct_ib_md_config {
 
     UCS_CONFIG_ARRAY_FIELD(ucs_config_bw_spec_t, device) pci_bw; /**< List of PCI BW for devices */
 } uct_ib_md_config_t;
+
+
+typedef struct uct_ib_md_ops {
+    ucs_status_t            (*open)(struct ibv_device *ibv_device,
+                                    const uct_ib_md_config_t *md_config,
+                                    uct_ib_md_t **p_md);
+    ucs_status_t            (*init_priv)(uct_ib_md_t *md, uct_md_attr_t *md_attr,
+                                         const uct_ib_md_config_t *md_config);
+    void                    (*cleanup_priv)(uct_ib_md_t *md);
+
+    size_t                  memh_struct_size;
+    ucs_status_t            (*reg_atomic_key)(struct uct_ib_md *md,
+                                              uct_ib_mem_t *memh,
+                                              off_t offset);
+    ucs_status_t            (*dereg_atomic_key)(struct uct_ib_md *md,
+                                                uct_ib_mem_t *memh);
+} uct_ib_md_ops_t;
 
 
 /**
@@ -244,5 +253,27 @@ ucs_status_t uct_ib_verbs_reg_atomic_key(uct_ib_md_t *md,
 
 ucs_status_t uct_ib_verbs_dereg_atomic_key(uct_ib_md_t *md,
                                            uct_ib_mem_t *memh);
+
+ucs_status_t uct_ib_md_query(uct_md_h uct_md, uct_md_attr_t *md_attr);
+
+ucs_status_t uct_ib_md_init_rcache(uct_ib_md_t *md, uct_md_attr_t *md_attr,
+                                   const uct_ib_md_config_t *md_config,
+                                   size_t memh_struct_size);
+
+ucs_status_t uct_ib_mem_reg(uct_md_h uct_md, void *address, size_t length,
+                            unsigned flags, uct_mem_h *memh_p);
+
+ucs_status_t uct_ib_mem_dereg(uct_md_h uct_md, uct_mem_h memh);
+
+ucs_status_t uct_ib_mem_advise(uct_md_h uct_md, uct_mem_h memh,
+                               void *addr, size_t length, unsigned advice);
+
+ucs_status_t uct_ib_mkey_pack(uct_md_h uct_md, uct_mem_h memh,
+                              void *rkey_buffer);
+
+ucs_status_t
+uct_ib_mem_prefetch_internal(uct_ib_md_t *md, uct_ib_mem_t *memh, void *addr, size_t length);
+
+void uct_ib_mem_init(uct_ib_mem_t *memh, unsigned uct_flags, uint64_t exp_access);
 
 #endif

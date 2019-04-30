@@ -123,10 +123,19 @@ struct mlx5_grh_av {
                                   sizeof(struct mlx5_wqe_data_seg))
 
 
+typedef struct uct_ib_mlx5_mem {
+    uct_ib_mem_t             super;
+#if HAVE_DEVX
+    struct mlx5dv_devx_obj   *atomic_dvmr;
+#endif
+} uct_ib_mlx5_mem_t;
+
+
 enum {
     UCT_IB_MLX5_MD_FLAG_KSM      = UCS_BIT(0),   /* Device supports KSM */
     UCT_IB_MLX5_MD_FLAG_DEVX     = UCS_BIT(1),   /* Device supports DEVX */
 };
+
 
 /**
  * MLX5 IB memory domain.
@@ -135,6 +144,7 @@ typedef struct uct_ib_mlx5_md {
     uct_ib_md_t              super;
     uint32_t                 flags;
     ucs_mpool_t              dbrec_pool;
+    uct_ib_mlx5_mem_t        global_odp;  /**< Implicit ODP memory handle */
 } uct_ib_mlx5_md_t;
 
 
