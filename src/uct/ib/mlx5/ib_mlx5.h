@@ -125,17 +125,18 @@ struct mlx5_grh_av {
 
 typedef struct uct_ib_mlx5_mem {
     uct_ib_mem_t             super;
-#if HAVE_DEVX
+    uint32_t                 atomic_rkey;
+#if HAVE_EXP_UMR
+    struct ibv_mr            *atomic_mr;
+#elif HAVE_DEVX
     struct mlx5dv_devx_obj   *atomic_dvmr;
 #endif
 } uct_ib_mlx5_mem_t;
-
 
 enum {
     UCT_IB_MLX5_MD_FLAG_KSM      = UCS_BIT(0),   /* Device supports KSM */
     UCT_IB_MLX5_MD_FLAG_DEVX     = UCS_BIT(1),   /* Device supports DEVX */
 };
-
 
 /**
  * MLX5 IB memory domain.
@@ -144,7 +145,9 @@ typedef struct uct_ib_mlx5_md {
     uct_ib_md_t              super;
     uint32_t                 flags;
     ucs_mpool_t              dbrec_pool;
-    uct_ib_mlx5_mem_t        global_odp;  /**< Implicit ODP memory handle */
+    struct ibv_qp            *umr_qp;   /* special QP for creating UMR */
+    struct ibv_cq            *umr_cq;   /* special CQ for creating UMR */
+    uct_ib_mlx5_mem_t        global_odp;/**< Implicit ODP memory handle */
 } uct_ib_mlx5_md_t;
 
 
@@ -358,6 +361,19 @@ typedef struct uct_ib_mlx5_iface_common {
     uct_ib_mlx5_iface_res_domain_t   *res_domain;
 } uct_ib_mlx5_iface_common_t;
 
+
+/**
+ * Calculate unique id for atomic
+ */
+uint8_t uct_ib_md_get_atomic_mr_id(uct_ib_mlx5_md_t *md);
+
+static inline uint8_t uct_ib_iface_get_atomic_mr_id(uct_ib_iface_t *iface)
+{
+    ucs_assert(ucs_derived_of(iface->super.md, uct_ib_md_t)->dev.flags &
+               UCT_IB_DEVICE_FLAG_MLX5_PRM);
+    return uct_ib_md_get_atomic_mr_id(ucs_derived_of(iface->super.md,
+                                      uct_ib_mlx5_md_t));
+}
 
 ucs_status_t uct_ib_mlx5_iface_init_res_domain(uct_ib_iface_t *iface,
                                                uct_ib_mlx5_iface_common_t *mlx5);

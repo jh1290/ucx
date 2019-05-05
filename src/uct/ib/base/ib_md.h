@@ -73,12 +73,8 @@ typedef struct uct_ib_md_ext_config {
 
 typedef struct uct_ib_mem {
     uint32_t                lkey;
-    uint32_t                atomic_rkey;
     uint32_t                flags;
     struct ibv_mr           *mr;
-#if HAVE_EXP_UMR
-    struct ibv_mr           *atomic_mr;
-#endif
 } uct_ib_mem_t;
 
 struct uct_ib_md;
@@ -94,8 +90,6 @@ typedef struct uct_ib_md {
     uct_linear_growth_t      reg_cost;  /**< Memory registration cost */
     struct uct_ib_md_ops     *ops;
     /* keep it in md because pd is needed to create umr_qp/cq */
-    struct ibv_qp            *umr_qp;   /* special QP for creating UMR */
-    struct ibv_cq            *umr_cq;   /* special CQ for creating UMR */
     UCS_STATS_NODE_DECLARE(stats);
     uct_ib_md_ext_config_t   config;    /* IB external configuration */
     struct {
@@ -140,12 +134,6 @@ typedef struct uct_ib_md_ops {
     ucs_status_t            (*init_priv)(uct_ib_md_t *md, uct_md_attr_t *md_attr,
                                          const uct_ib_md_config_t *md_config);
     void                    (*cleanup_priv)(uct_ib_md_t *md);
-
-    ucs_status_t            (*reg_atomic_key)(struct uct_ib_md *md,
-                                              uct_ib_mem_t *memh,
-                                              off_t offset);
-    ucs_status_t            (*dereg_atomic_key)(struct uct_ib_md *md,
-                                                uct_ib_mem_t *memh);
 } uct_ib_md_ops_t;
 
 
@@ -185,12 +173,6 @@ typedef struct uct_ib_md_ops_entry {
 
 
 extern uct_md_component_t uct_ib_mdc;
-
-
-/**
- * Calculate unique id for atomic
- */
-uint8_t uct_ib_md_get_atomic_mr_id(uct_ib_md_t *md);
 
 
 static inline uint32_t uct_ib_md_direct_rkey(uct_rkey_t uct_rkey)
@@ -253,6 +235,12 @@ ucs_status_t uct_ib_verbs_reg_atomic_key(uct_ib_md_t *md,
 ucs_status_t uct_ib_verbs_dereg_atomic_key(uct_ib_md_t *md,
                                            uct_ib_mem_t *memh);
 
+void uct_ib_md_print_mem_reg_err_msg(ucs_log_level_t level, void *address,
+                                     size_t length, uint64_t exp_access,
+                                     const char *exp_prefix);
+
+ucs_status_t uct_ib_mem_set_numa_policy(uct_ib_md_t *md, uct_ib_mem_t *memh);
+
 ucs_status_t uct_ib_md_query(uct_md_h uct_md, uct_md_attr_t *md_attr);
 
 ucs_status_t uct_ib_md_init_rcache(uct_ib_md_t *md, uct_md_attr_t *md_attr,
@@ -265,23 +253,5 @@ ucs_status_t uct_ib_mem_rcache_reg(uct_md_h uct_md, void *address,
                                    uct_mem_h *memh_p);
 
 ucs_status_t uct_ib_mem_rcache_dereg(uct_md_h uct_md, uct_mem_h memh);
-
-ucs_status_t uct_ib_mem_dereg(uct_md_h uct_md, uct_mem_h memh);
-
-ucs_status_t uct_ib_mkey_pack(uct_md_h uct_md, uct_mem_h memh,
-                              void *rkey_buffer);
-
-ucs_status_t uct_ib_mem_reg_internal(uct_md_h uct_md, void *address,
-                                     size_t length, unsigned flags,
-                                     int silent, uct_ib_mem_t *memh);
-
-void uct_ib_mem_init(uct_ib_mem_t *memh, unsigned uct_flags, uint64_t exp_access);
-
-void uct_ib_rcache_mem_dereg_cb(void *context, ucs_rcache_t *rcache,
-                                ucs_rcache_region_t *rregion);
-
-void uct_ib_rcache_dump_region_cb(void *context, ucs_rcache_t *rcache,
-                                  ucs_rcache_region_t *rregion, char *buf,
-                                  size_t max);
 
 #endif

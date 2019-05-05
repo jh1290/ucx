@@ -43,6 +43,9 @@ void test_ib_md::ib_md_umr_check(void *rkey_buffer,
     if (ucs_get_memfree_size() < size * 4) {
         UCS_TEST_SKIP_R("not enough free memory");
     }
+    if (!(ucs_derived_of(md(), uct_ib_md_t)->dev.flags & UCT_IB_DEVICE_FLAG_MLX5_PRM)) {
+        UCS_TEST_SKIP_R("no mlx5 support");
+    }
 
     buffer     = NULL;
     alloc_size = size;
@@ -59,7 +62,8 @@ void test_ib_md::ib_md_umr_check(void *rkey_buffer,
     ASSERT_TRUE(memh != UCT_MEM_HANDLE_NULL);
 
     uct_ib_mem_t *ib_memh = (uct_ib_mem_t *)memh;
-    uct_ib_md_t  *ib_md = (uct_ib_md_t *)md();
+    uct_ib_md_t *ib_md = (uct_ib_md_t *)md();
+    uct_ib_mlx5_mem_t *mlx5_memh = (uct_ib_mlx5_mem_t *)memh;
 
     if (amo_access) {
         EXPECT_TRUE(ib_memh->flags & UCT_IB_MEM_ACCESS_REMOTE_ATOMIC);
@@ -75,14 +79,14 @@ void test_ib_md::ib_md_umr_check(void *rkey_buffer,
     if (amo_access) {
         if (check_umr(ib_md)) {
             EXPECT_TRUE(ib_memh->flags & UCT_IB_MEM_FLAG_ATOMIC_MR);
-            EXPECT_TRUE(ib_memh->atomic_rkey != 0);
+            EXPECT_TRUE(mlx5_memh->atomic_rkey != 0);
         } else {
             EXPECT_FALSE(ib_memh->flags & UCT_IB_MEM_FLAG_ATOMIC_MR);
-            EXPECT_TRUE(ib_memh->atomic_rkey == 0);
+            EXPECT_TRUE(mlx5_memh->atomic_rkey == 0);
         }
     } else {
         EXPECT_FALSE(ib_memh->flags & UCT_IB_MEM_FLAG_ATOMIC_MR);
-        EXPECT_TRUE(ib_memh->atomic_rkey == 0);
+        EXPECT_TRUE(mlx5_memh->atomic_rkey == 0);
     }
 
     status = uct_md_mem_dereg(md(), memh);
@@ -107,7 +111,8 @@ bool test_ib_md::check_umr(uct_ib_md_t *ib_md) const {
 #if HAVE_DEVX
     return has_ksm();
 #else
-    return ib_md->umr_qp != NULL;
+    uct_ib_mlx5_md_t *mlx5_md = ucs_derived_of(ib_md, uct_ib_mlx5_md_t);
+    return mlx5_md->umr_qp != NULL;
 #endif
 }
 
