@@ -553,6 +553,11 @@ static ucs_status_t uct_ib_mlx5_exp_md_open(struct ibv_device *ibv_device,
         goto err_free;
     }
 
+    status = uct_ib_device_init_ports(dev, ibv_device);
+    if (status != UCS_OK) {
+        goto err_free;
+    }
+
     if (!(uct_ib_device_spec(dev)->flags & UCT_IB_DEVICE_FLAG_MLX5_PRM)) {
         status = UCS_ERR_UNSUPPORTED;
         goto err_free;

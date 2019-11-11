@@ -184,6 +184,17 @@ uct_ib_mlx5_devx_check_odp(uct_ib_mlx5_md_t *md, void *cap)
     uint32_t in[UCT_IB_MLX5DV_ST_SZ_DW(query_hca_cap_in)] = {};
     void *odp;
     int ret;
+    uct_ib_device_t *dev = &md->super.dev;
+    int port_num;
+
+    for (port_num = dev->first_port;
+         port_num < dev->first_port + dev->num_ports;
+         port_num++)
+    {
+        if (uct_ib_device_is_port_roce(dev, port_num)) {
+            goto no_odp;
+        }
+    }
 
     if (!UCT_IB_MLX5DV_GET(cmd_hca_cap, cap, pg)) {
         goto no_odp;
@@ -287,6 +298,11 @@ static ucs_status_t uct_ib_mlx5_devx_md_open(struct ibv_device *ibv_device,
     md->super.config = md_config->ext;
 
     status = uct_ib_query_device(dev->ibv_context, &dev->dev_attr);
+    if (status != UCS_OK) {
+        goto err_free;
+    }
+
+    status = uct_ib_device_init_ports(dev, ibv_device);
     if (status != UCS_OK) {
         goto err_free;
     }
@@ -587,6 +603,11 @@ static ucs_status_t uct_ib_mlx5dv_md_open(struct ibv_device *ibv_device,
     dev->ibv_context = ctx;
 
     status = uct_ib_query_device(dev->ibv_context, &dev->dev_attr);
+    if (status != UCS_OK) {
+        goto err_free;
+    }
+
+    status = uct_ib_device_init_ports(dev, ibv_device);
     if (status != UCS_OK) {
         goto err_free;
     }
