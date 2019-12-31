@@ -617,18 +617,23 @@ ucs_status_t uct_ib_verbs_create_cq(struct ibv_context *context, int cqe,
     cq_attr.channel = channel;
     cq_attr.comp_vector = comp_vector;
     if (ignore_overrun) {
+        printf("%s:%d\n", __func__, __LINE__);
         cq_attr.comp_mask = IBV_CQ_INIT_ATTR_MASK_FLAGS;
         cq_attr.flags = IBV_CREATE_CQ_ATTR_IGNORE_OVERRUN;
     }
 
     cq = ibv_cq_ex_to_cq(ibv_create_cq_ex(context, &cq_attr));
-    if (!cq && (errno == ENOSYS))
+    printf("%s:%d %p %d\n", __func__, __LINE__, cq, errno);
+    if (!cq)
+#else
+    printf("%s:%d\n", __func__, __LINE__);
 #endif
     {
         *inl = 0;
         cq = ibv_create_cq(context, cqe, NULL, channel, comp_vector);
     }
 
+    printf("%s:%d %p %p %d\n", __func__, __LINE__, cq, channel, comp_vector);
     if (!cq) {
         ucs_error("ibv_create_cq(cqe=%d) failed: %m", cqe);
         return UCS_ERR_IO_ERROR;
@@ -850,6 +855,7 @@ UCS_CLASS_INIT_FUNC(uct_ib_iface_t, uct_ib_iface_ops_t *ops, uct_md_h md,
         status = UCS_ERR_IO_ERROR;
         goto err_cleanup;
     }
+    printf("%s:%d %p\n", __func__, __LINE__, self->comp_channel);
 
     status = ucs_sys_fcntl_modfl(self->comp_channel->fd, O_NONBLOCK, 0);
     if (status != UCS_OK) {
