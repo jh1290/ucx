@@ -525,6 +525,9 @@ UCS_CLASS_INIT_FUNC(uct_ud_iface_t, uct_ud_iface_ops_t *ops, uct_md_h md,
         goto err_tx_mpool;
     }
 
+    self->s.resend = 0;
+    self->s.ackreq = 0;
+
     return UCS_OK;
 
 err_tx_mpool:
@@ -541,6 +544,7 @@ static UCS_CLASS_CLEANUP_FUNC(uct_ud_iface_t)
 {
     ucs_trace_func("");
 
+    printf("%s:%d %d %d\n", __func__, __LINE__, self->s.resend, self->s.ackreq);
     /* TODO: proper flush and connection termination */
     uct_ud_enter(self);
     ucs_twheel_cleanup(&self->tx.timer);

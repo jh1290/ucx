@@ -182,12 +182,14 @@ static void uct_ud_ep_timer(ucs_wtimer_t *self)
         uct_ud_ep_ctl_op_del(ep, UCT_UD_EP_OP_ACK_REQ);
         uct_ud_ep_ca_drop(ep);
         uct_ud_ep_resend_start(iface, ep);
+        iface->s.resend++;
     } else if ((diff > iface->tx.tick) && uct_ud_ep_is_connected(ep)) {
         /* It is possible that the sender is slow.
          * Try to flush the window twice before going into
          * full resend mode.
          */
         uct_ud_ep_ctl_op_add(iface, ep, UCT_UD_EP_OP_ACK_REQ);
+        iface->s.ackreq++;
     }
 
 again:

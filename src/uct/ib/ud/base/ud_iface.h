@@ -167,6 +167,11 @@ struct uct_ud_iface {
         ucs_time_t                tick;
         int                       timer_id;
     } async;
+
+    struct {
+        unsigned                  resend;
+        unsigned                  ackreq;
+    } s;
 };
 
 UCS_CLASS_DECLARE(uct_ud_iface_t, uct_ud_iface_ops_t*, uct_md_h,
